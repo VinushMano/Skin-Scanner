@@ -3,6 +3,7 @@ from typing import Optional, Dict, Any, List, Tuple
 import config
 import json
 import asyncio
+from datetime import datetime, timedelta
 
 class HypixelAPI:
     def __init__(self):
@@ -12,9 +13,32 @@ class HypixelAPI:
             "API-Key": self.api_key,
             "User-Agent": config.USER_AGENT
         }
+        self.cache = {}
+        self.cache_duration = timedelta(minutes=5)  # Cache data for 5 minutes
+
+    def _is_cache_valid(self, key: str) -> bool:
+        if key not in self.cache:
+            return False
+        cache_time, _ = self.cache[key]
+        return datetime.now() - cache_time < self.cache_duration
+
+    def _get_cached_data(self, key: str) -> Optional[dict]:
+        if self._is_cache_valid(key):
+            return self.cache[key][1]
+        return None
+
+    def _cache_data(self, key: str, data: dict):
+        self.cache[key] = (datetime.now(), data)
 
     async def ensure_data(self, endpoint: str, params: dict, session: Optional[aiohttp.ClientSession] = None) -> Optional[dict]:
-        """Get data from Hypixel API with retries"""
+        """Get data from Hypixel API with retries and caching"""
+        cache_key = f"{endpoint}:{json.dumps(params, sort_keys=True)}"
+        
+        # Check cache first
+        cached_data = self._get_cached_data(cache_key)
+        if cached_data:
+            return cached_data
+
         if session is None:
             session = aiohttp.ClientSession(headers=self.headers)
         
@@ -25,7 +49,9 @@ class HypixelAPI:
                     continue
                 if response.status != 200:
                     return None
-                return await response.json()
+                data = await response.json()
+                self._cache_data(cache_key, data)
+                return data
 
     async def get_player_skins(self, username: str) -> Optional[Dict[str, Any]]:
         """
@@ -54,11 +80,22 @@ class HypixelAPI:
                 # Collect all items and skins
                 items = {}
                 applied_items = []
+                first_login = None
+                last_login = None
 
                 # Process each profile
                 for profile in profiles_data['profiles']:
                     # Get member data
                     member_data = profile['members'].get(uuid, {})
+                    
+                    # Update login times
+                    member_first_login = member_data.get('firstLogin')
+                    member_last_login = member_data.get('lastLogin')
+                    
+                    if member_first_login and (first_login is None or member_first_login < first_login):
+                        first_login = member_first_login
+                    if member_last_login and (last_login is None or member_last_login > last_login):
+                        last_login = member_last_login
                     
                     # Check pets for skins
                     for pet in member_data.get('pets_data', {}).get('pets', []):
@@ -94,8 +131,8 @@ class HypixelAPI:
                     "username": username,
                     "uuid": uuid,
                     "skins": applied_items,
-                    "last_login": member_data.get('lastLogin'),
-                    "first_login": member_data.get('firstLogin')
+                    "last_login": last_login or 0,  # Default to 0 if None
+                    "first_login": first_login or 0  # Default to 0 if None
                 }
 
             except Exception as e:

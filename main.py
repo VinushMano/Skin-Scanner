@@ -48,11 +48,16 @@ async def check_skins(
     )
 
     # Add player info
+    player_info = [f"UUID: `{player_data['uuid']}`"]
+    
+    if player_data['first_login'] > 0:
+        player_info.append(f"First Login: <t:{player_data['first_login']//1000}:R>")
+    if player_data['last_login'] > 0:
+        player_info.append(f"Last Login: <t:{player_data['last_login']//1000}:R>")
+    
     embed.add_field(
         name="Player Info",
-        value=f"UUID: `{player_data['uuid']}`\n"
-              f"First Login: <t:{player_data['first_login']//1000}:R>\n"
-              f"Last Login: <t:{player_data['last_login']//1000}:R>",
+        value="\n".join(player_info),
         inline=False
     )
 
