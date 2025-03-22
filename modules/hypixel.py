@@ -1,9 +1,6 @@
 import aiohttp
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any
 import config
-import json
-import asyncio
-from datetime import datetime, timedelta
 
 class HypixelAPI:
     def __init__(self):
@@ -13,45 +10,6 @@ class HypixelAPI:
             "API-Key": self.api_key,
             "User-Agent": config.USER_AGENT
         }
-        self.cache = {}
-        self.cache_duration = timedelta(minutes=5)  # Cache data for 5 minutes
-
-    def _is_cache_valid(self, key: str) -> bool:
-        if key not in self.cache:
-            return False
-        cache_time, _ = self.cache[key]
-        return datetime.now() - cache_time < self.cache_duration
-
-    def _get_cached_data(self, key: str) -> Optional[dict]:
-        if self._is_cache_valid(key):
-            return self.cache[key][1]
-        return None
-
-    def _cache_data(self, key: str, data: dict):
-        self.cache[key] = (datetime.now(), data)
-
-    async def ensure_data(self, endpoint: str, params: dict, session: Optional[aiohttp.ClientSession] = None) -> Optional[dict]:
-        """Get data from Hypixel API with retries and caching"""
-        cache_key = f"{endpoint}:{json.dumps(params, sort_keys=True)}"
-        
-        # Check cache first
-        cached_data = self._get_cached_data(cache_key)
-        if cached_data:
-            return cached_data
-
-        if session is None:
-            session = aiohttp.ClientSession(headers=self.headers)
-        
-        while True:
-            async with session.get(f"{self.base_url}{endpoint}", params=params) as response:
-                if response.status == 429:  # Rate limit
-                    await asyncio.sleep(1)
-                    continue
-                if response.status != 200:
-                    return None
-                data = await response.json()
-                self._cache_data(cache_key, data)
-                return data
 
     async def get_player_skins(self, username: str) -> Optional[Dict[str, Any]]:
         """
@@ -60,26 +18,27 @@ class HypixelAPI:
         async with aiohttp.ClientSession(headers=self.headers) as session:
             try:
                 # First get the player's UUID
-                async with session.get(f"{config.MOJANG_API_BASE}/{username}") as response:
-                    if response.status != 200:
-                        return None
-                    uuid_data = await response.json()
-                    uuid = uuid_data.get("id")
+                uuid_data = await self.ensure_data(f"/users/profiles/minecraft/{username}", {}, session=session)
+                if not uuid_data:
+                    return None
+                uuid = uuid_data.get("id")
 
                 # Get SkyBlock profiles
                 profiles_data = await self.ensure_data('/skyblock/profiles', {"uuid": uuid}, session=session)
                 if not profiles_data or not profiles_data.get('profiles'):
                     return None
 
-                # Get museum data for all profiles
-                museum_datas = await asyncio.gather(*[
-                    self.ensure_data('/skyblock/museum', {"profile": profile['profile_id']}, session=session)
-                    for profile in profiles_data['profiles']
-                ])
+                # Get museum data for all profiles in parallel
+                museum_tasks = []
+                for profile in profiles_data['profiles']:
+                    museum_data = await self.ensure_data('/skyblock/museum', {"profile": profile['profile_id']}, session=session)
+                    if museum_data:
+                        museum_tasks.append(museum_data)
 
                 # Collect all items and skins
                 items = {}
                 applied_items = []
+                non_applied_items = []
                 first_login = None
                 last_login = None
 
@@ -112,27 +71,40 @@ class HypixelAPI:
                                 items[item['ExtraAttributes']['uuid']] = item
                                 if item.get('ExtraAttributes', {}).get('skin'):
                                     applied_items.append(item['ExtraAttributes']['skin'])
+                                # Check for non-applied skins in item name
+                                if 'skin' in item.get('name', '').lower():
+                                    non_applied_items.append(item['name'])
 
                 # Check museum items
-                for museum_data in museum_datas:
-                    if not museum_data:
-                        continue
+                for museum_data in museum_tasks:
                     for item in museum_data.get('items', []):
                         if not item.get('ExtraAttributes', {}).get('uuid'):
                             continue
                         items[item['ExtraAttributes']['uuid']] = item
                         if item.get('ExtraAttributes', {}).get('skin'):
                             applied_items.append(item['ExtraAttributes']['skin'])
+                        # Check for non-applied skins in item name
+                        if 'skin' in item.get('name', '').lower():
+                            non_applied_items.append(item['name'])
 
                 # Remove duplicates
                 applied_items = list(set(applied_items))
+                non_applied_items = list(set(non_applied_items))
+
+                # Check if API is enabled
+                api_status = await self.ensure_data('/status', {}, session=session)
+                api_enabled = api_status.get('success', False) if api_status else False
 
                 return {
                     "username": username,
                     "uuid": uuid,
-                    "skins": applied_items,
-                    "last_login": last_login or 0,  # Default to 0 if None
-                    "first_login": first_login or 0  # Default to 0 if None
+                    "skins": {
+                        "applied": applied_items,
+                        "non_applied": non_applied_items
+                    },
+                    "last_login": last_login or 0,
+                    "first_login": first_login or 0,
+                    "api_enabled": api_enabled
                 }
 
             except Exception as e:

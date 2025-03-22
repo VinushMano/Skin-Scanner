@@ -48,16 +48,11 @@ async def check_skins(
     )
 
     # Add player info
-    player_info = [f"UUID: `{player_data['uuid']}`"]
-    
-    if player_data['first_login'] > 0:
-        player_info.append(f"First Login: <t:{player_data['first_login']//1000}:R>")
-    if player_data['last_login'] > 0:
-        player_info.append(f"Last Login: <t:{player_data['last_login']//1000}:R>")
-    
     embed.add_field(
         name="Player Info",
-        value="\n".join(player_info),
+        value=f"UUID: `{player_data['uuid']}`\n"
+              f"First Login: <t:{player_data['first_login']//1000}:R>\n"
+              f"Last Login: <t:{player_data['last_login']//1000}:R>",
         inline=False
     )
 
@@ -70,31 +65,14 @@ async def check_skins(
             inline=False
         )
     else:
-        # Group skins by type (PET_SKIN_ vs regular skins)
-        pet_skins = [skin for skin in skins if skin.startswith('PET_SKIN_')]
-        regular_skins = [skin for skin in skins if not skin.startswith('PET_SKIN_')]
-
-        # Add pet skins
-        if pet_skins:
-            pet_skins_text = ""
-            for skin in sorted(pet_skins):
-                pet_skins_text += f"• {skin.replace('PET_SKIN_', '')}\n"
-            embed.add_field(
-                name="Pet Skins",
-                value=pet_skins_text,
-                inline=False
-            )
-
-        # Add regular skins
-        if regular_skins:
-            regular_skins_text = ""
-            for skin in sorted(regular_skins):
-                regular_skins_text += f"• {skin}\n"
-            embed.add_field(
-                name="Item Skins",
-                value=regular_skins_text,
-                inline=False
-            )
+        skins_text = ""
+        for skin in skins:
+            skins_text += f"• {skin.get('name', 'Unknown Skin')}\n"
+        embed.add_field(
+            name="Owned Skins",
+            value=skins_text,
+            inline=False
+        )
 
     await inter.followup.send(embed=embed)
 
