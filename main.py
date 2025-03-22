@@ -65,22 +65,29 @@ async def check_skins(
             inline=False
         )
     else:
-        # Group skins by location
-        skins_by_location = {}
-        for skin in skins:
-            location = skin.get("location", "Unknown")
-            if location not in skins_by_location:
-                skins_by_location[location] = []
-            skins_by_location[location].append(skin)
+        # Group skins by type (PET_SKIN_ vs regular skins)
+        pet_skins = [skin for skin in skins if skin.startswith('PET_SKIN_')]
+        regular_skins = [skin for skin in skins if not skin.startswith('PET_SKIN_')]
 
-        # Add each location's skins to the embed
-        for location, location_skins in skins_by_location.items():
-            skins_text = ""
-            for skin in location_skins:
-                skins_text += f"• {skin.get('name', 'Unknown Item')}\n"
+        # Add pet skins
+        if pet_skins:
+            pet_skins_text = ""
+            for skin in sorted(pet_skins):
+                pet_skins_text += f"• {skin.replace('PET_SKIN_', '')}\n"
             embed.add_field(
-                name=f"Skins in {location}",
-                value=skins_text or "No skins found",
+                name="Pet Skins",
+                value=pet_skins_text,
+                inline=False
+            )
+
+        # Add regular skins
+        if regular_skins:
+            regular_skins_text = ""
+            for skin in sorted(regular_skins):
+                regular_skins_text += f"• {skin}\n"
+            embed.add_field(
+                name="Item Skins",
+                value=regular_skins_text,
                 inline=False
             )
 
