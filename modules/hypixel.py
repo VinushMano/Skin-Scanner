@@ -1,6 +1,8 @@
 import aiohttp
 from typing import Optional, Dict, Any
 import config
+import json
+import time
 
 class HypixelAPI:
     def __init__(self):
@@ -10,6 +12,8 @@ class HypixelAPI:
             "API-Key": self.api_key,
             "User-Agent": config.USER_AGENT
         }
+        self.cache = {}
+        self.cache_duration = 60  # Assuming a default cache duration
 
     async def get_player_skins(self, username: str) -> Optional[Dict[str, Any]]:
         """
@@ -20,12 +24,20 @@ class HypixelAPI:
                 # First get the player's UUID
                 uuid_data = await self.ensure_data(f"/users/profiles/minecraft/{username}", {}, session=session)
                 if not uuid_data:
+                    print(f"Could not find UUID for username: {username}")
                     return None
                 uuid = uuid_data.get("id")
+                if not uuid:
+                    print(f"No UUID found in response for username: {username}")
+                    return None
 
                 # Get SkyBlock profiles
                 profiles_data = await self.ensure_data('/skyblock/profiles', {"uuid": uuid}, session=session)
-                if not profiles_data or not profiles_data.get('profiles'):
+                if not profiles_data:
+                    print(f"No profiles data found for UUID: {uuid}")
+                    return None
+                if not profiles_data.get('profiles'):
+                    print(f"No SkyBlock profiles found for UUID: {uuid}")
                     return None
 
                 # Get museum data for all profiles in parallel
@@ -110,3 +122,46 @@ class HypixelAPI:
             except Exception as e:
                 print(f"Error fetching player data: {e}")
                 return None 
+
+    async def ensure_data(self, endpoint: str, params: Dict[str, Any], session: aiohttp.ClientSession) -> Optional[Dict[str, Any]]:
+        """
+        Ensure we have data for an endpoint, using cache if available
+        """
+        # Create cache key from endpoint and params
+        cache_key = f"{endpoint}:{json.dumps(params, sort_keys=True)}"
+        
+        # Check cache first
+        if cache_key in self.cache:
+            cache_entry = self.cache[cache_key]
+            if time.time() - cache_entry['timestamp'] < self.cache_duration:
+                return cache_entry['data']
+        
+        # If not in cache or expired, fetch from API
+        try:
+            # Handle Mojang API endpoint differently
+            if endpoint.startswith('/users/profiles/minecraft/'):
+                url = f"{config.MOJANG_API_BASE}{endpoint}"
+            else:
+                url = f"{self.base_url}{endpoint}"
+                
+            async with session.get(url, params=params) as response:
+                if response.status == 429:
+                    print(f"Rate limit hit for endpoint: {endpoint}")
+                    return None
+                if response.status != 200:
+                    print(f"Error {response.status} for endpoint: {endpoint}")
+                    return None
+                    
+                data = await response.json()
+                
+                # Cache the response
+                self.cache[cache_key] = {
+                    'data': data,
+                    'timestamp': time.time()
+                }
+                
+                return data
+                
+        except Exception as e:
+            print(f"Error fetching data from {endpoint}: {e}")
+            return None 

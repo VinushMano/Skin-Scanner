@@ -6,7 +6,7 @@ async def skins(ctx, username: str):
         player_data = await hypixel.get_player_skins(username)
         
         if not player_data:
-            await ctx.send(f"❌ Could not find data for player: {username}")
+            await ctx.send(f"❌ Could not find data for player: {username}\nMake sure the username is correct and the player has played SkyBlock.")
             return
             
         if not player_data.get('api_enabled', False):
@@ -84,4 +84,4 @@ async def skins(ctx, username: str):
         
     except Exception as e:
         print(f"Error in skins command: {e}")
-        await ctx.send("❌ An error occurred while fetching skin data.") 
+        await ctx.send("❌ An error occurred while fetching skin data. Please try again later.") 
