@@ -65,14 +65,24 @@ async def check_skins(
             inline=False
         )
     else:
-        skins_text = ""
+        # Group skins by location
+        skins_by_location = {}
         for skin in skins:
-            skins_text += f"• {skin.get('name', 'Unknown Skin')}\n"
-        embed.add_field(
-            name="Owned Skins",
-            value=skins_text,
-            inline=False
-        )
+            location = skin.get("location", "Unknown")
+            if location not in skins_by_location:
+                skins_by_location[location] = []
+            skins_by_location[location].append(skin)
+
+        # Add each location's skins to the embed
+        for location, location_skins in skins_by_location.items():
+            skins_text = ""
+            for skin in location_skins:
+                skins_text += f"• {skin.get('name', 'Unknown Item')}\n"
+            embed.add_field(
+                name=f"Skins in {location}",
+                value=skins_text or "No skins found",
+                inline=False
+            )
 
     await inter.followup.send(embed=embed)
 
